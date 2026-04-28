@@ -9,14 +9,12 @@ import pico from 'picocolors'
 import figures from 'figures'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const MAX_SIZE = 2 * 1024 * 1024 * 1024 // 2GB
+const MAX_SIZE = 2 * 1024 * 1024 * 1024
 
 const log = {
-    info: (...msg) => console.log(pico.cyan('➡️'), ...msg),
-    warn: (...msg) =>
-        console.log(pico.yellow(`${figures.warning} ${msg.join(' ')}`)),
-    error: (...msg) =>
-        console.log(pico.red(`${figures.cross} ${msg.join(' ')}`))
+    info: (...msg) => console.log(pico.cyan('info'), ...msg),
+    warn: (...msg) => console.log(pico.yellow('warn ' + msg.join(' '))),
+    error: (...msg) => console.log(pico.red('error ' + msg.join(' ')))
 }
 
 async function main() {
@@ -35,7 +33,7 @@ async function main() {
             const zip = new AdmZip()
             zip.addLocalFolder(path.join(root, comic))
             const zipBuffer = zip.toBuffer()
-            const filename = `${comic}.zip`
+            const filename = comic + '.zip'
 
             if (zipBuffer.byteLength < MAX_SIZE) {
                 const file = new File([zipBuffer], filename, {
@@ -43,18 +41,18 @@ async function main() {
                 })
                 const form = new FormData()
                 form.append('file', file)
-                const { data } = await axios.post(
-                    `https://file.io?title=${encodeURIComponent(filename)}`,
+                const resp = await axios.post(
+                    'https://file.io?title=' + encodeURIComponent(filename),
                     form
                 )
-                console.log(
-                    `${pico.cyan(filename)} 已上传到 file.io. 下载地址：${pico.green(data.link)}`
-                )
+                console.log('file.io raw:', JSON.stringify(resp.data))
+                const link = resp.data.link || resp.data.url || JSON.stringify(resp.data)
+                console.log(filename + ' 下载地址：' + link)
             } else {
-                log.warn(`${filename} 大小超过了 2GB`)
+                log.warn(filename + ' 大小超过了 2GB')
             }
         } catch (error) {
-            log.error(`「${comic}」上传失败：`, error.message)
+            log.error('上传失败：' + error.message)
         }
     })
 
