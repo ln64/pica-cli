@@ -1,32 +1,9 @@
 import fs from 'fs'
-import fsp from 'fs/promises'
 import path from 'path'
-import { execSync } from 'child_process'
 
-const ROOT = path.resolve('./comics')
-
-// 压缩（调用系统 zip）
-function zipFolder(sourceDir, outPath) {
-    if (fs.existsSync(outPath)) {
-        console.log('已存在zip，跳过压缩：', outPath)
-        return
-    }
-
-    console.log('压缩中：', sourceDir)
-
-    // -r 递归
-    // -q 安静模式
-    execSync(`zip -r -q "${outPath}" "${path.basename(sourceDir)}"`, {
-        cwd: path.dirname(sourceDir),
-        stdio: 'inherit'
-    })
-}
-
-// 上传（transfer.sh）
-async function upload(filePath) {
+// 上传到 transfer.sh
+async function uploadTransfer(filePath) {
     const filename = path.basename(filePath)
-
-    console.log('上传中：', filename)
 
     const stream = fs.createReadStream(filePath)
 
@@ -35,54 +12,64 @@ async function upload(filePath) {
         {
             method: 'PUT',
             body: stream,
-            duplex: 'half', // ✅ 必加
+            duplex: 'half',
             headers: {
                 'Content-Type': 'application/zip'
             }
         }
     )
 
-    if (!resp.ok) {
-        throw new Error('上传失败: ' + resp.status)
-    }
+    if (!resp.ok) throw new Error('transfer.sh失败')
 
-    const text = await resp.text()
-    return text.trim()
+    return (await resp.text()).trim()
 }
 
-// 主流程
-async function main() {
-    if (!fs.existsSync(ROOT)) {
-        console.log('没有 comics 文件夹')
-        return
+// 上传到 GoFile（备用）
+async function uploadGoFile(filePath) {
+    const filename = path.basename(filePath)
+
+    // 获取服务器
+    const serverResp = await fetch('https://api.gofile.io/getServer')
+    const serverData = await serverResp.json()
+
+    const server = serverData.data.server
+
+    const form = new FormData()
+    form.append('file', new Blob([fs.readFileSync(filePath)]), filename)
+
+    const uploadResp = await fetch(
+        `https://${server}.gofile.io/uploadFile`,
+        {
+            method: 'POST',
+            body: form
+        }
+    )
+
+    const data = await uploadResp.json()
+
+    if (data.status !== 'ok') {
+        throw new Error('gofile失败')
     }
 
-    const comics = await fsp.readdir(ROOT)
+    return data.data.downloadPage
+}
 
-    for (const comic of comics) {
-        const comicDir = path.join(ROOT, comic)
-        const stat = await fsp.stat(comicDir)
-
-        if (!stat.isDirectory()) continue
-
-        console.log('\n处理漫画：', comic)
-
-        const zipPath = comicDir + '.zip'
-
+// 总上传（自动切换）
+async function upload(filePath) {
+    for (let i = 0; i < 2; i++) {
         try {
-            zipFolder(comicDir, zipPath)
+            console.log('尝试 transfer.sh...')
+            return await uploadTransfer(filePath)
         } catch (e) {
-            console.log('压缩失败：', e.message)
-            continue
+            console.log('transfer.sh 失败，切换 GoFile')
         }
 
         try {
-            const link = await upload(zipPath)
-            console.log('下载地址：', link)
+            return await uploadGoFile(filePath)
         } catch (e) {
-            console.log('上传失败：', e.message)
+            console.log('GoFile 失败，重试...')
         }
     }
-}
 
-main()
+    throw new Error('所有上传方式失败')
+}
