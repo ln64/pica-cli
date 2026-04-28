@@ -35,6 +35,7 @@ async function upload(filePath) {
         {
             method: 'PUT',
             body: stream,
+            duplex: 'half', // ✅ 必加
             headers: {
                 'Content-Type': 'application/zip'
             }
