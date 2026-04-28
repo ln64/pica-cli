@@ -244,7 +244,7 @@ export class Pica {
 
     async search(keyword: string, page = 1, sort = this.Order.loved) {
         const res = await this.api.get(
-            `comics/search?keyword=${encodeURIComponent(keyword)}&page=${page}&sort=${sort}`
+            `comics?keyword=${encodeURIComponent(keyword)}&page=${page}&sort=${sort}`
         )
         const docs: Comic[] = (res?.comics || res?.list || res?.docs || [])
             .map((c: any) => ({
