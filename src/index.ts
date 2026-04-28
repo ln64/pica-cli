@@ -121,9 +121,25 @@ async function main() {
             return
         }
 
-        const inputKeys = inputStr.split('#')
+        const inputKeys = inputStr.split('#').map((k) => k.trim()).filter(Boolean)
 
-        // 根据漫画ID查询
+        // HC 号直接查询（花咋新格式，如 HC0001255）
+        const hcIds = inputKeys.filter((k: string) => /^HC\d+$/i.test(k))
+        for (const hcId of hcIds) {
+            try {
+                spinner.start(`正在查找 ${hcId}`)
+                const info = await pica.comicInfo(hcId)
+                info.title = info.title.trim()
+                comics.push(info)
+                spinner.stop()
+                log.info(`${info.title} 已加入下载队列`)
+            } catch (error) {
+                spinner.stop()
+                log.error(`找不到漫画 ${hcId}: ${error}`)
+            }
+        }
+
+        // MongoDB id 直接查询（24位十六进制）
         const bookIds = inputKeys.filter((k: string) => isValidComicId(k))
         for (const id of bookIds) {
             try {
@@ -131,13 +147,15 @@ async function main() {
                 info.title = info.title.trim()
                 comics.push(info)
                 log.info(`${info.title} 已加入下载队列`)
-} catch (error) {
-    log.error(`无效漫画ID ${id}: ${error}`)
-}
+            } catch (error) {
+                log.error(`无效漫画ID ${id}: ${error}`)
+            }
         }
 
-        // 根据关键字查询
-        const keywords = inputKeys.filter((k: string) => !isValidComicId(k))
+        // 其余作为关键字搜索
+        const keywords = inputKeys.filter(
+            (k: string) => !isValidComicId(k) && !/^HC\d+$/i.test(k)
+        )
         for (const keyword of keywords) {
             spinner.start(`正在搜索 ${keyword}`)
             searchRes = await pica.searchAll(keyword)
@@ -180,7 +198,7 @@ async function main() {
         let episodes = await pica.episodesAll(cid).catch((error) => {
             if (error === 400) {
                 spinner.stop()
-                log.error(`「${title}」无法访问，可能已被哔咔禁止`)
+                log.error(`「${title}」无法访问`)
             }
             return []
         })
