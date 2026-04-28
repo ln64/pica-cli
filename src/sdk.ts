@@ -23,9 +23,10 @@ export class Pica {
     }
     api
     token: string | undefined
+    cookie: string | undefined
     maxRetry = 3
     retryMap = new Map<string, number>()
-cookie: string | undefined
+
     constructor() {
         const httpProxy = process.env.PICA_PROXY
             ? new URL(process.env.PICA_PROXY as string)
@@ -42,17 +43,17 @@ cookie: string | undefined
                 : false
         })
 
-this.api.interceptors.request.use((config) => {
-    config.headers['Content-Type'] = 'application/json'
-    config.headers['Accept'] = 'application/json'
-    if (this.token) {
-        config.headers['Authorization'] = `Bearer ${this.token}`
-    }
-    if (this.cookie) {
-        config.headers['Cookie'] = this.cookie
-    }
-    return config
-})
+        this.api.interceptors.request.use((config) => {
+            config.headers['Content-Type'] = 'application/json'
+            config.headers['Accept'] = 'application/json'
+            if (this.token) {
+                config.headers['Authorization'] = `Bearer ${this.token}`
+            }
+            if (this.cookie) {
+                config.headers['Cookie'] = this.cookie
+            }
+            return config
+        })
 
         this.api.interceptors.response.use(
             (res) => {
@@ -93,49 +94,80 @@ this.api.interceptors.request.use((config) => {
         )
     }
 
-async login(account: string, password: string) {
-    debug('\n%s %s', account, password)
+    async login(account: string, password: string) {
+        debug('\n%s %s', account, password)
 
-    const res = await axios.post(
-        'https://app.huakacomic.com/api/bff/auth/login',
-        { username: account, password: password },
-        { headers: { 'Content-Type': 'application/json' } }
-    )
+        const res = await axios.post(
+            'https://app.huakacomic.com/api/bff/auth/login',
+            { username: account, password: password },
+            { headers: { 'Content-Type': 'application/json' } }
+        )
 
-    const cookies = res.headers['set-cookie']
-    if (cookies) {
-        this.cookie = cookies.map((c: string) => c.split(';')[0]).join('; ')
+        const cookies = res.headers['set-cookie']
+        if (cookies) {
+            this.cookie = cookies.map((c: string) => c.split(';')[0]).join('; ')
+        }
+
+        const token = res.data?.data?.accessToken || res.data?.accessToken
+        if (!token) {
+            throw new Error('登录失败，未获取到 token')
+        }
+        this.token = token
     }
 
-    const token = res.data?.data?.accessToken || res.data?.accessToken
-    if (!token) {
-        throw new Error('登录失败，未获取到 token')
+    /**
+     * 将 HC 格式 id 或 MongoDB id 统一转换为 MongoDB id
+     * HC0001255 -> 69xxx...（通过列表搜索匹配 huaCode）
+     * 69xxx...  -> 直接返回
+     */
+    async resolveId(input: string): Promise<string> {
+        // 已经是 MongoDB id（24位十六进制）
+        if (/^[0-9a-f]{24}$/i.test(input)) {
+            return input
+        }
+        // HC 格式，通过列表翻页查找
+        const huaCode = input.toUpperCase()
+        let nextPageToken: string | null = null
+        let page = 0
+        do {
+            const url = nextPageToken
+                ? `comics?pageSize=100&pageToken=${nextPageToken}`
+                : 'comics?pageSize=100'
+            const res = await this.api.get(url)
+            const comics: any[] = res?.comics || []
+            const found = comics.find((c: any) => c.huaCode === huaCode)
+            if (found) {
+                console.log(`找到 ${huaCode} -> ${found.id} 《${found.title}》`)
+                return found.id
+            }
+            nextPageToken = res?.nextPageToken || null
+            page++
+            if (page > 200) break // 安全上限，最多翻 20000 条
+        } while (nextPageToken)
+        throw new Error(`找不到漫画: ${input}，请确认 HC 编号是否正确`)
     }
-    this.token = token
-    console.log('token set, length:', token.length)
-    console.log('cookie set:', !!this.cookie)
-}
 
-async comicInfo(bookId: string) {
-    console.log('comicInfo token:', this.token ? this.token.slice(0, 20) + '...' : 'EMPTY')
-    const res = await this.api.get(`comics/${bookId}`)
-    const comic = res?.comic || res
-    return {
-        ...comic,
-        _id: comic.id || comic._id || bookId,
-        title: (comic.title || comic.name || bookId).trim(),
-        author: (comic.authors || []).join(', ') || comic.author || '',
-    } as Comic
-}
+    async comicInfo(bookId: string) {
+        const id = await this.resolveId(bookId)
+        const res = await this.api.get(`comics/${id}`)
+        const comic = res?.comic || res
+        return {
+            ...comic,
+            _id: comic.id || comic._id || id,
+            title: (comic.title || comic.name || id).trim(),
+            author: (comic.authors || []).join(', ') || comic.author || '',
+        } as Comic
+    }
 
     async episodesAll(bookId: string) {
+        const id = await this.resolveId(bookId)
         const allEpisodes: any[] = []
         let page = 1
 
         while (true) {
-const res = await this.api.get(
-    `episodes?comicId=${bookId}&page=${page}&pageSize=100`
-)
+            const res = await this.api.get(
+                `episodes?comicId=${id}&page=${page}&pageSize=100`
+            )
             const eps: any[] = res?.episodes || res?.list || res?.docs || []
             if (eps.length === 0) break
 
@@ -172,17 +204,13 @@ const res = await this.api.get(
 
         const len = String(allPages.length).length
         return allPages.map((page: any, i: number) => {
-            const ext = (() => {
-                try { return path.extname(new URL(page.mediaUrl).pathname) || '.webp' }
-                catch { return '.webp' }
-            })()
-const jpgUrl = page.mediaUrl.replace('_read.webp', '_read.jpg')
-return {
-    ...page,
-    url: jpgUrl,
-    epTitle: ep.title,
-    name: String(i + 1).padStart(len, '0') + '.jpg'
-}
+            const jpgUrl = page.mediaUrl.replace('_read.webp', '_read.jpg')
+            return {
+                ...page,
+                url: jpgUrl,
+                epTitle: ep.title,
+                name: String(i + 1).padStart(len, '0') + '.jpg'
+            }
         })
     }
 
@@ -222,7 +250,7 @@ return {
             .map((c: any) => ({
                 _id: c.id || c._id,
                 title: (c.title || c.name || '').trim(),
-                author: c.author || '',
+                author: (c.authors || []).join(', ') || c.author || '',
                 ...c
             }))
         return {
@@ -251,7 +279,7 @@ return {
             .map((c: any) => ({
                 _id: c.id || c._id,
                 title: (c.title || c.name || '').trim(),
-                author: c.author || '',
+                author: (c.authors || []).join(', ') || c.author || '',
                 ...c
             }))
         return {
@@ -283,7 +311,7 @@ return {
             return (res?.comics || res || []).map((c: any) => ({
                 _id: c.id || c._id,
                 title: (c.title || c.name || '').trim(),
-                author: c.author || '',
+                author: (c.authors || []).join(', ') || c.author || '',
                 ...c
             })) as Comic[]
         } catch {
