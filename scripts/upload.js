@@ -19,10 +19,8 @@ const log = {
         console.log(pico.red(`${figures.cross} ${msg.join(' ')}`))
 }
 
-// https://file.io/
 async function main() {
     let root = path.resolve(__dirname, '../comics-zip')
-
     if (!existsSync(root)) {
         root = path.resolve(__dirname, '../comics')
         if (!existsSync(root)) {
@@ -32,10 +30,9 @@ async function main() {
     }
 
     const comics = await fs.readdir(root)
-    const task = comics.map(async (comic) => {
+    const tasks = comics.map(async (comic) => {
         try {
             const zip = new AdmZip()
-            // don't use promise function of AdmZip, its have too many bugs
             zip.addLocalFolder(path.join(root, comic))
             const zipBuffer = zip.toBuffer()
             const filename = `${comic}.zip`
@@ -47,10 +44,9 @@ async function main() {
                 const form = new FormData()
                 form.append('file', file)
                 const { data } = await axios.post(
-                    `https://file.io?title=${filename}`,
+                    `https://file.io?title=${encodeURIComponent(filename)}`,
                     form
                 )
-
                 console.log(
                     `${pico.cyan(filename)} 已上传到 file.io. 下载地址：${pico.green(data.link)}`
                 )
@@ -61,7 +57,8 @@ async function main() {
             log.error(`「${comic}」上传失败：`, error.message)
         }
     })
-    return Promise.allSettled(task)
+
+    return Promise.allSettled(tasks)
 }
 
 main()
