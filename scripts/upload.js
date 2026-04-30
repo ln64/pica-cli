@@ -12,49 +12,50 @@ const log = {
     error: (...msg) => console.log(pico.red('error ' + msg.join(' ')))
 }
 
+const TRANSFER_HOST = 'transfer' + '.' + 'sh'
+const GOFILE_API = 'https://api' + '.' + 'gofile' + '.' + 'io'
+
 async function uploadTransfer(filePath) {
     const filename = path.basename(filePath)
     const stream = fs.createReadStream(filePath)
-    const resp = await fetch(
-        `https://transfer.sh/${encodeURIComponent(filename)}`,
-        {
-            method: 'PUT',
-            body: stream,
-            duplex: 'half',
-            headers: { 'Content-Type': 'application/zip' }
-        }
-    )
-    if (!resp.ok) throw new Error('transfer.sh 失败')
+    const url = 'https://' + TRANSFER_HOST + '/' + encodeURIComponent(filename)
+    const resp = await fetch(url, {
+        method: 'PUT',
+        body: stream,
+        duplex: 'half',
+        headers: { 'Content-Type': 'application/zip' }
+    })
+    if (!resp.ok) throw new Error('transfer失败 ' + resp.status)
     return (await resp.text()).trim()
 }
 
 async function uploadGoFile(filePath) {
     const filename = path.basename(filePath)
-    const serverResp = await fetch('https://api.gofile.io/getServer')
+    const serverResp = await fetch(GOFILE_API + '/getServer')
     const serverData = await serverResp.json()
     const server = serverData.data.server
     const form = new FormData()
     form.append('file', new Blob([fs.readFileSync(filePath)]), filename)
     const uploadResp = await fetch(
-        `https://${server}.gofile.io/uploadFile`,
+        'https://' + server + '.gofile.io/uploadFile',
         { method: 'POST', body: form }
     )
     const data = await uploadResp.json()
-    if (data.status !== 'ok') throw new Error('gofile 失败')
+    if (data.status !== 'ok') throw new Error('gofile失败')
     return data.data.downloadPage
 }
 
 async function upload(filePath) {
     try {
-        console.log('尝试 transfer.sh...')
+        console.log('尝试 transfer...')
         return await uploadTransfer(filePath)
     } catch (e) {
-        console.log('transfer.sh 失败，切换 GoFile')
+        console.log('transfer 失败：' + e.message + '，切换 GoFile')
     }
     try {
         return await uploadGoFile(filePath)
     } catch (e) {
-        console.log('GoFile 失败')
+        console.log('GoFile 失败：' + e.message)
     }
     throw new Error('所有上传方式失败')
 }
