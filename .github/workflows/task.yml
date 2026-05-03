@@ -87,12 +87,12 @@ jobs:
         if: inputs.OUTPUT_ZIP
         run: pnpm start:zip
 
-      - name: Upload to github
-        uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: pica-comics
-          path: ${{ inputs.OUTPUT_ZIP && 'comics-zip/' || 'comics/' }}
-          retention-days: 7
+          name: comics
+          path: comics/
+          retention-days: 1
 
       - name: Upload to file.io
         if: inputs.UPLOAD_FILEIO
