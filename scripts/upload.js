@@ -3,61 +3,41 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import AdmZip from 'adm-zip'
 import pico from 'picocolors'
+import COS from 'cos-nodejs-sdk-v5'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const log = {
-    info: (...msg) => console.log(pico.cyan('info'), ...msg),
     warn: (...msg) => console.log(pico.yellow('warn ' + msg.join(' '))),
     error: (...msg) => console.log(pico.red('error ' + msg.join(' ')))
 }
 
-const TRANSFER_HOST = 'transfer' + '.' + 'sh'
-const GOFILE_API = 'https://api' + '.' + 'gofile' + '.' + 'io'
+const cos = new COS({
+    SecretId: process.env.COS_SECRET_ID,
+    SecretKey: process.env.COS_SECRET_KEY
+})
 
-async function uploadTransfer(filePath) {
+const BUCKET = 'books-1307473067'
+const REGION = 'ap-hongkong'
+
+function uploadToCOS(filePath) {
     const filename = path.basename(filePath)
-    const stream = fs.createReadStream(filePath)
-    const url = 'https://' + TRANSFER_HOST + '/' + encodeURIComponent(filename)
-    const resp = await fetch(url, {
-        method: 'PUT',
-        body: stream,
-        duplex: 'half',
-        headers: { 'Content-Type': 'application/zip' }
+    const key = 'comics/' + filename
+    return new Promise((resolve, reject) => {
+        cos.uploadFile({
+            Bucket: BUCKET,
+            Region: REGION,
+            Key: key,
+            FilePath: filePath,
+            onProgress: (p) => {
+                process.stdout.write('\r上传中 ' + Math.round(p.percent * 100) + '%')
+            }
+        }, (err, data) => {
+            if (err) return reject(err)
+            console.log('')
+            resolve('https://' + BUCKET + '.cos.' + REGION + '.myqcloud.com/' + key)
+        })
     })
-    if (!resp.ok) throw new Error('transfer失败 ' + resp.status)
-    return (await resp.text()).trim()
-}
-
-async function uploadGoFile(filePath) {
-    const filename = path.basename(filePath)
-    const serverResp = await fetch(GOFILE_API + '/getServer')
-    const serverData = await serverResp.json()
-    const server = serverData.data.server
-    const form = new FormData()
-    form.append('file', new Blob([fs.readFileSync(filePath)]), filename)
-    const uploadResp = await fetch(
-        'https://' + server + '.gofile.io/uploadFile',
-        { method: 'POST', body: form }
-    )
-    const data = await uploadResp.json()
-    if (data.status !== 'ok') throw new Error('gofile失败')
-    return data.data.downloadPage
-}
-
-async function upload(filePath) {
-    try {
-        console.log('尝试 transfer...')
-        return await uploadTransfer(filePath)
-    } catch (e) {
-        console.log('transfer 失败：' + e.message + '，切换 GoFile')
-    }
-    try {
-        return await uploadGoFile(filePath)
-    } catch (e) {
-        console.log('GoFile 失败：' + e.message)
-    }
-    throw new Error('所有上传方式失败')
 }
 
 async function main() {
@@ -79,7 +59,7 @@ async function main() {
             const filename = comic + '.zip'
             const tmpPath = path.resolve(__dirname, '../' + filename)
             fs.writeFileSync(tmpPath, zipBuffer)
-            const link = await upload(tmpPath)
+            const link = await uploadToCOS(tmpPath)
             fs.unlinkSync(tmpPath)
             console.log(filename + ' 下载地址：' + link)
         } catch (error) {
