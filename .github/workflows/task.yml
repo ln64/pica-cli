@@ -77,7 +77,7 @@ jobs:
 
       - name: Install deps and build
         run: |
-          pnpm install
+          pnpm install --no-frozen-lockfile
           pnpm run build
 
       - name: Download
