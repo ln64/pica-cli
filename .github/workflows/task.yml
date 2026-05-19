@@ -56,6 +56,7 @@ env:
   PICA_DL_SEARCH_KEYWORDS: ${{ inputs.PICA_DL_SEARCH_KEYWORDS }}
   PICA_DL_CHAPTER: ${{ inputs.PICA_DL_CHAPTER }}
   PICA_DL_FAV_PAGE: ${{ inputs.PICA_DL_FAV_PAGE }}
+  PICA_COOKIE: ${{ secrets.PICA_COOKIE }}
 
 jobs:
   download:
