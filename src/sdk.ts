@@ -95,25 +95,14 @@ export class Pica {
     }
 
     async login(account: string, password: string) {
-        debug('\n%s %s', account, password)
-
-        const res = await axios.post(
-            'https://app.huakacomic.com/api/bff/auth/login',
-            { username: account, password: password },
-            { headers: { 'Content-Type': 'application/json' } }
-        )
-
-        const cookies = res.headers['set-cookie']
-        if (cookies) {
-            this.cookie = cookies.map((c: string) => c.split(';')[0]).join('; ')
-        }
-
-        const token = res.data?.data?.accessToken || res.data?.accessToken
-        if (!token) {
-            throw new Error('登录失败，未获取到 token')
-        }
-        this.token = token
+    const cookieEnv = process.env.PICA_COOKIE
+    if (cookieEnv) {
+        this.cookie = cookieEnv
+        console.log('✓ 使用 Cookie 登录')
+        return
     }
+    throw new Error('请设置 PICA_COOKIE 环境变量')
+}
 
     /**
      * 将 HC 格式 id 或 MongoDB id 统一转换为 MongoDB id
