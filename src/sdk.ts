@@ -106,7 +106,7 @@ export class Pica {
 
     /**
      * 将 HC 格式 id 或 MongoDB id 统一转换为 MongoDB id
-     * HC0001255 -> 69xxx...（通过列表搜索匹配 huaCode）
+     * HC0001255 -> 69xxx...（从公开详情页解析）
      * 69xxx...  -> 直接返回
      */
     async resolveId(input: string): Promise<string> {
@@ -114,25 +114,27 @@ export class Pica {
         if (/^[0-9a-f]{24}$/i.test(input)) {
             return input
         }
-        // HC 格式，通过列表翻页查找
+        // 花咔的漫画列表目前最多只返回 25 条/页。旧实现按 100 条估算并在
+        // 200 页后停止，较早的 HC 编号因此永远无法被扫描到。详情页本身
+        // 支持 HC 编号，并会在章节链接中输出真实的 MongoDB id，直接解析
+        // 该链接既准确，也避免为了一个编号遍历整个漫画库。
         const huaCode = input.toUpperCase()
-        let nextPageToken: string | null = null
-        let page = 0
-        do {
-            const url = nextPageToken
-                ? `comics?pageSize=100&pageToken=${nextPageToken}`
-                : 'comics?pageSize=100'
-            const res = await this.api.get(url)
-            const comics: any[] = res?.comics || []
-            const found = comics.find((c: any) => c.huaCode === huaCode)
-            if (found) {
-                console.log(`找到 ${huaCode} -> ${found.id} 《${found.title}》`)
-                return found.id
-            }
-            nextPageToken = res?.nextPageToken || null
-            page++
-            if (page > 200) break // 安全上限，最多翻 20000 条
-        } while (nextPageToken)
+        if (!/^HC\d+$/i.test(huaCode)) {
+            throw new Error(`无效的漫画编号: ${input}`)
+        }
+
+        const detailUrl = `https://app.huakacomic.com/zh-CN/comics/${encodeURIComponent(huaCode)}`
+        const response = await axios.get<string>(detailUrl, {
+            headers: this.cookie ? { Cookie: this.cookie } : undefined
+        })
+        const match = response.data.match(
+            /\/comics\/([0-9a-f]{24})\/episodes\/[0-9a-f]{24}/i
+        )
+        if (match) {
+            console.log(`找到 ${huaCode} -> ${match[1]}`)
+            return match[1]
+        }
+
         throw new Error(`找不到漫画: ${input}，请确认 HC 编号是否正确`)
     }
 
